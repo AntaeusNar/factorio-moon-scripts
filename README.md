@@ -6,47 +6,66 @@ Lua scripts for the [Moon Script](https://mods.factorio.com/mod/Moon_Script) cir
 
 ## production_planner.lua
 
-Reads a production order (items + quantities per minute), recursively resolves every sub-assembly recipe, and emits circuit-network signals that tell your assemblers how many machines are needed to sustain the desired throughput.
+Reads live production requests from the **red wire**, uses the **green wire** to know what raw materials are already being supplied, recursively resolves all sub-assembly recipes, and dispatches assignments to **8 assembler slots** — automatically choosing series or parallel layout based on throughput needs.
 
 ### Features
 
-- **Recursive recipe resolution** – follows ingredients all the way down to raw materials.
-- **Circular-recipe detection** – safely skips loops (e.g. Kovarex enrichment) instead of hanging.
-- **Productivity-module support** – configurable bonus so assembler counts stay accurate.
-- **Raw-material reporting** – items with no craftable recipe are emitted as negative signals so you can route them separately.
-- **Configurable cycle rate** – re-plans every N ticks (default 300 = 5 s) to stay responsive without wasting UPS.
+- **Live wire input** — no hardcoded tables; plug in a constant combinator on the red wire and change your production goals at any time.
+- **Green-wire supply awareness** — items present on the green wire are treated as externally provided; the planner skips their recipes and only reports how much you need to supply.
+- **8-assembler dispatch** — slot assignments are computed every planning cycle and set directly on connected assembling machines via the Moon Script entity API.
+- **Automatic series / parallel layout** — bottleneck steps (high assembler demand) get multiple parallel slots; simpler steps each get one slot in dependency order.
+- **Recursive recipe resolution** — resolves the full ingredient tree down to raw materials.
+- **Circular-recipe detection** — safely handles loops (e.g. Kovarex enrichment) without hanging.
+- **Productivity-module support** — configurable bonus keeps assembler counts accurate.
+- **Configurable cycle rate** — re-plans every N ticks (default 300 = 5 s).
 
-### Quick start
+### Wiring
 
-1. Open `production_planner.lua` and edit the `PRODUCTION_ORDER` table at the top:
+```
+[Constant combinator]  ── red  ──► [Moon Script combinator] ──► [8× Assembling machines]
+[Raw-material supply]  ── green ──►                          └──► [Circuit monitoring]
+```
 
-   ```lua
-   local PRODUCTION_ORDER = {
-       ["electronic-circuit"]      = 60,   -- 60 / min
-       ["iron-gear-wheel"]         = 30,
-       ["automation-science-pack"] = 15,
-   }
-   ```
+| Wire | Carries |
+|---|---|
+| Red | Item signals: name = item to produce, count = desired items / min |
+| Green | Item signals: name = raw material, count = supply rate (items / min) |
+| Output | Recipe-rate signals, raw-shortfall signals, slot-beacon virtual signals |
 
-2. Adjust `ASSEMBLER_SPEED` (`0.50` AM1 / `0.75` AM2 / `1.25` AM3, default) and `PRODUCTIVITY_BONUS` (e.g. `0.4` for four Productivity Module 1s at +10 % each = 40 % total).
-
-3. Paste the entire script into the Moon Script combinator in-game.
-
-4. Wire the combinator's output to your assembler network.  
-   Each assembler should be circuit-filtered to act only on its own item signal.
-
-### Signal layout
+### Output signal layout
 
 | Signal name | Value | Meaning |
 |---|---|---|
-| `<item-name>` | positive integer | Number of assemblers required |
-| `<item-name>` | negative integer | Raw-material demand (items / min) |
+| `<recipe item>` | positive integer | Target throughput for that recipe (items / min) |
+| `<raw item>` | negative integer | Unsatisfied raw-material demand (items / min) |
+| `signal-1` … `signal-8` | 1 or 0 | Slot-beacon: 1 = slot active, 0 = idle |
+
+### Series vs parallel
+
+| Mode | When | How |
+|---|---|---|
+| **Parallel** | A recipe needs > 1 assembler to hit the target rate | Multiple consecutive slots get the **same** recipe |
+| **Series** | Each step needs only 1 assembler | Each slot gets a **different** recipe in dependency order (slot 1 = deepest ingredient, slot 8 = final product) |
+
+### Assembler identification
+
+The script discovers connected assemblers through the circuit network and sorts them by `unit_number` (lowest = slot 1, highest = slot 8). Wire all 8 assemblers to the Moon Script combinator before starting so slot numbering is stable.
+
+### Quick start
+
+1. Paste the entire script into the Moon Script combinator in-game.
+2. Adjust `ASSEMBLER_SPEED` (`0.50` AM1 / `0.75` AM2 / `1.25` AM3, default) and `PRODUCTIVITY_BONUS` if needed.
+3. Wire a **constant combinator** to the **red wire** and set the items + rates you want.
+4. Wire your **raw-material suppliers** to the **green wire**.
+5. Wire **8 assembling machines** to the combinator (red or green wire).
+6. The script will set recipes and enable/disable assemblers automatically each cycle.
 
 ### Debugging
 
 Open the Moon Script console and call:
 
 ```lua
-print_plan()   -- logs the full plan to the Factorio log file
-get_plan()     -- returns the raw plan tables for inspection
+print_plan()   -- logs slot assignments and raw-material shortfall to the Factorio log
+get_plan()     -- returns the raw slot and raw tables for inspection
 ```
+
