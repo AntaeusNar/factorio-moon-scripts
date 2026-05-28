@@ -46,9 +46,10 @@ local PRODUCTION_ORDER = {
     ["automation-science-pack"] = 15,
 }
 
---- Base crafting speed of the assemblers receiving orders (default: 1.25 for
---- Assembling Machine 2).  Increase for AM3 (1.25 → upgrade is same speed
---- but with module slots; set modules below).
+--- Base crafting speed of the assemblers receiving orders.
+---   Assembling Machine 1 = 0.50
+---   Assembling Machine 2 = 0.75
+---   Assembling Machine 3 = 1.25  (default)
 local ASSEMBLER_SPEED = 1.25
 
 --- Combined productivity bonus as a decimal (0.0 = none, 0.4 = 4 prod modules
@@ -147,12 +148,16 @@ local function resolve(item_name, items_per_min, plan, raw, visiting, depth)
         resolve(ing_name, ing_rate, plan, raw, visiting, depth + 1)
     end
 
-    -- Optionally follow byproducts
+    -- Optionally follow byproducts: calculate the rate at which this recipe
+    -- produces each byproduct and recurse so their sub-ingredients are planned.
     if FOLLOW_BYPRODUCTS then
         for _, product in ipairs(recipe.products) do
             local pname = product.name or product[1]
             if pname ~= item_name then
-                resolve(pname, 0, plan, raw, visiting, depth + 1)
+                local by_qty  = product.amount
+                             or ((( product.amount_min or 1) + (product.amount_max or 1)) / 2)
+                local by_rate = crafts_per_min * by_qty  -- items / minute produced
+                resolve(pname, by_rate, plan, raw, visiting, depth + 1)
             end
         end
     end
@@ -188,17 +193,21 @@ local function to_signal_count(n)
     return math.max(1, math.floor(n + 0.5))
 end
 
---- Emits `signals` (table of {signal={type,name}, count}) onto the circuit
---- network.  In the Moon Script environment the combinator exposes
---- `output_signal(name, type, count)`.  Adjust the call below if your mod
---- version uses a different API.
+--- Emits signals onto the circuit network.
+---
+--- Moon Script API notes:
+---   Older versions expose:  output_signal(name, count)
+---   Newer versions expose:  set_output(name, count)  and  clear_output()
+--- Adjust the calls below if your mod version differs.
 local function emit_signals(signals)
-    -- Clear previous outputs
-    if output then output({}) end  -- Moon Script API to clear all signals
+    -- Clear previous outputs using whichever API is available.
+    if clear_output then
+        clear_output()
+    elseif output then
+        output({})
+    end
 
     for _, sig in ipairs(signals) do
-        -- Moon Script API: set_signal(signal_name, value)
-        -- Adjust the function name to match your mod version.
         if output_signal then
             output_signal(sig.name, sig.count)
         elseif set_output then

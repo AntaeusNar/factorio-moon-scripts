@@ -28,7 +28,7 @@ Reads a production order (items + quantities per minute), recursively resolves e
    }
    ```
 
-2. Adjust `ASSEMBLER_SPEED` (default `1.25` for AM2) and `PRODUCTIVITY_BONUS` (e.g. `0.4` for four Productivity Module 1s).
+2. Adjust `ASSEMBLER_SPEED` (`0.50` AM1 / `0.75` AM2 / `1.25` AM3, default) and `PRODUCTIVITY_BONUS` (e.g. `0.4` for four Productivity Module 1s at +10 % each = 40 % total).
 
 3. Paste the entire script into the Moon Script combinator in-game.
 
