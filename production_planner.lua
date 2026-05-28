@@ -115,17 +115,23 @@ local function get_recipe(item_name)
     return game.recipe_prototypes[item_name]
 end
 
+--- Returns the amount of product_name produced by one craft of recipe,
+--- adjusted for productivity.  Used both for primary products and byproducts.
+local function product_amount(product)
+    if product.amount then
+        return product.amount
+    else
+        return ((product.amount_min or 1) + (product.amount_max or 1)) / 2
+    end
+end
+
 --- Effective output quantity of one craft for product_name, with productivity.
 local function effective_output(recipe, product_name)
     local amount = 0
     for _, product in ipairs(recipe.products) do
         local pname = product.name or product[1]
         if pname == product_name then
-            if product.amount then
-                amount = product.amount
-            else
-                amount = ((product.amount_min or 1) + (product.amount_max or 1)) / 2
-            end
+            amount = product_amount(product)
             break
         end
     end
@@ -202,9 +208,7 @@ local function resolve(item_name, items_per_min, supply,
         for _, product in ipairs(recipe.products) do
             local pname = product.name or product[1]
             if pname ~= item_name then
-                local by_qty  = product.amount
-                             or (((product.amount_min or 1) + (product.amount_max or 1)) / 2)
-                resolve(pname, crafts_per_min * by_qty, supply,
+                resolve(pname, crafts_per_min * product_amount(product), supply,
                         plan, rates, raw, deps, visiting, depth + 1)
             end
         end
@@ -294,8 +298,9 @@ local function assign_slots(sorted_steps)
         local max_for_step = math.max(1, remaining_slots - (remaining_steps - 1))
 
         -- Ideal: proportional share of total slots
-        local fraction    = (total_frac > 0) and (math.max(1, step.assemblers) / total_frac)
-                            or (1 / n)
+        local fraction    = (total_frac > 0)
+                            and (math.max(1, step.assemblers) / total_frac)
+                            or  (1 / n)
         local ideal       = math.max(1, math.floor(fraction * NUM_ASSEMBLERS + 0.5))
         local slots_count = math.min(max_for_step, ideal)
 
@@ -525,7 +530,7 @@ function print_plan()
         if a then
             log(string.format(
                 "  Slot %d  [%-8s]  recipe: %-35s  rate: %6.1f /min  "
-                .. "(%.2f asm needed, %d allocated)",
+                .. "(%.2f assemblers needed, %d allocated)",
                 slot, a.mode, a.recipe, a.rate or 0,
                 a.assemblers_needed or 0, a.assemblers_allocated or 1
             ))
