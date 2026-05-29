@@ -1,8 +1,12 @@
--- production_planner.lua  v2.0
+-- production_planner.lua  v2.1
 -- Factorio Moon Script Circuit Mod
 --
 -- HOW TO USE
 -- ----------
+-- This script runs as a top-level chunk on every game tick.  Persistent state
+-- is kept in the Moon Script 'var' table.  Local helper functions are defined
+-- at the top of the file and called from the main logic at the bottom.
+--
 -- RED WIRE INPUT:
 --   Connect to a constant combinator (or any circuit source) listing the
 --   items you want to produce and their desired rates in items / minute.
@@ -73,13 +77,19 @@ local MAX_DEPTH = 20
 --- Ticks between each planning cycle.  (300 ticks = 5 s at 60 UPS)
 local CYCLE_TICKS = 300
 
+--- When true, logs slot assignments and raw-material shortfall every cycle.
+local DEBUG = false
+
 -- ============================================================
--- INTERNAL STATE  (do not edit)
+-- PERSISTENT STATE  (stored in var so it survives between ticks)
 -- ============================================================
 
-local _tick_counter = 0
-local _last_slots   = {}   -- [slot_number] = {recipe, mode, rate, …}
-local _last_raw     = {}   -- {[item] = items_per_min needed from supply}
+-- var.tick_counter  — ticks elapsed since last planning cycle
+-- var.last_slots    — [slot_number] = {recipe, mode, rate, …}
+-- var.last_raw      — {[item] = items_per_min needed from supply}
+var.tick_counter = var.tick_counter or 0
+var.last_slots   = var.last_slots   or {}
+var.last_raw     = var.last_raw     or {}
 
 -- ============================================================
 -- WIRE READING
@@ -493,57 +503,48 @@ local function build_plan()
 end
 
 -- ============================================================
--- MAIN LOOP  –  called every tick by Moon Script
+-- MAIN LOOP  –  script body, executed every tick by Moon Script
 -- ============================================================
 
---- Called by the Moon Script runtime on every game tick.
-function on_tick()
-    _tick_counter = _tick_counter + 1
-    if _tick_counter < CYCLE_TICKS then return end
-    _tick_counter = 0
+var.tick_counter = var.tick_counter + 1
+if var.tick_counter >= CYCLE_TICKS then
+    var.tick_counter = 0
 
     local assignments, raw = build_plan()
-    _last_slots = assignments
-    _last_raw   = raw
+    var.last_slots = assignments
+    var.last_raw   = raw
 
     -- Direct assembler dispatch (sets recipes on connected entities)
     dispatch_to_assemblers(assignments)
 
     -- Emit signals for circuit-network monitoring / manual control
     emit_signals(assignments, raw)
-end
 
--- ============================================================
--- DEBUG HELPERS
--- ============================================================
-
---- Returns the last computed slot assignments and raw-material table.
-function get_plan()
-    return { slots = _last_slots, raw = _last_raw }
-end
-
---- Pretty-print the current slot assignments to the Factorio log.
-function print_plan()
-    log("=== Assembler Slot Assignments ===")
-    for slot = 1, NUM_ASSEMBLERS do
-        local a = _last_slots[slot]
-        if a then
-            log(string.format(
-                "  Slot %d  [%-8s]  recipe: %-35s  rate: %6.1f /min  "
-                .. "(%.2f assemblers needed, %d allocated)",
-                slot, a.mode, a.recipe, a.rate or 0,
-                a.assemblers_needed or 0, a.assemblers_allocated or 1
-            ))
+    -- --------------------------------------------------------
+    -- DEBUG OUTPUT  (set DEBUG = true in configuration above)
+    -- --------------------------------------------------------
+    if DEBUG then
+        log("=== Assembler Slot Assignments ===")
+        for slot = 1, NUM_ASSEMBLERS do
+            local a = var.last_slots[slot]
+            if a then
+                log(string.format(
+                    "  Slot %d  [%-8s]  recipe: %-35s  rate: %6.1f /min  "
+                    .. "(%.2f assemblers needed, %d allocated)",
+                    slot, a.mode, a.recipe, a.rate or 0,
+                    a.assemblers_needed or 0, a.assemblers_allocated or 1
+                ))
+            else
+                log(string.format("  Slot %d  [idle]", slot))
+            end
+        end
+        log("=== Raw Material Shortfall ===")
+        if next(var.last_raw) then
+            for item, rate in pairs(var.last_raw) do
+                log(string.format("  %-40s  %6.1f /min", item, rate))
+            end
         else
-            log(string.format("  Slot %d  [idle]", slot))
+            log("  (none — all raw materials satisfied by green-wire supply)")
         end
-    end
-    log("=== Raw Material Shortfall ===")
-    if next(_last_raw) then
-        for item, rate in pairs(_last_raw) do
-            log(string.format("  %-40s  %6.1f /min", item, rate))
-        end
-    else
-        log("  (none — all raw materials satisfied by green-wire supply)")
     end
 end

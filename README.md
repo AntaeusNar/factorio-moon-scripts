@@ -62,10 +62,5 @@ The script discovers connected assemblers through the circuit network and sorts 
 
 ### Debugging
 
-Open the Moon Script console and call:
-
-```lua
-print_plan()   -- logs slot assignments and raw-material shortfall to the Factorio log
-get_plan()     -- returns the raw slot and raw tables for inspection
-```
+Set `DEBUG = true` in the configuration section at the top of the script.  The planner will then write slot assignments and raw-material shortfall to the Factorio log after every planning cycle.
 
